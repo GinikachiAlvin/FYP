@@ -3,37 +3,59 @@ import numpy as np
 import pandas as pd
 import librosa
 import soundfile as sf
-import torch
-import eng_to_ipa as ipa
+# import torch
+# import eng_to_ipa as ipa
 import uuid
+import requests
 from sklearn.cluster import KMeans, SpectralClustering, AgglomerativeClustering
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+#from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
 from fpdf import FPDF
 
 np.complex = complex
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").to(device)
+
+API_URL = "https://thebickersteth-voxpreference.hf.space"
+
+def transcribe_and_get_ipa_api(audio_path, word):
+    with open(audio_path, "rb") as f:
+        files = {"audioFile": f}
+        data = {"word": word}  # Include the word to analyze
+        response = requests.post(API_URL, files=files, data=data)
+    
+    if response.status_code == 200:
+        result = response.json()
+        print(result)
+        text = result.get("text", "")
+        ipa = result.get("ipa", "")
+        return text, ipa
+    else:
+        raise ValueError(f"API error {response.status_code}: {response.text}")
+
+
+
+# device = "cuda" if torch.cuda.is_available() else "cpu"
+# processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+# model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").to(device)
+
 
 def extract_mfcc(audio_path, sr=16000, n_mfcc=13):
     y, sr = librosa.load(audio_path, sr=sr)
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
     return np.mean(mfcc.T, axis=0)
 
-def transcribe(audio_path):
-    speech, sr = librosa.load(audio_path, sr=16000)
-    input_values = processor(speech, return_tensors="pt", sampling_rate=16000).input_values.to(device)
-    with torch.no_grad():
-        logits = model(input_values).logits
-    predicted_ids = torch.argmax(logits, dim=-1)
-    text = processor.batch_decode(predicted_ids)[0]
-    return text
+# def transcribe(audio_path):
+#     speech, sr = librosa.load(audio_path, sr=16000)
+#     input_values = processor(speech, return_tensors="pt", sampling_rate=16000).input_values.to(device)
+#     with torch.no_grad():
+#         logits = model(input_values).logits
+#     predicted_ids = torch.argmax(logits, dim=-1)
+#     text = processor.batch_decode(predicted_ids)[0]
+#     return text
 
-def get_ipa(text):
-    return ipa.convert(text.lower())
+# def get_ipa(text):
+#     return ipa.convert(text.lower())
 
 
 def format_confusion_matrix(confusion_data):
@@ -81,18 +103,23 @@ def analyze_dataset(target_word, folder):
             path = os.path.join(folder, fname)
             try:
                 mfcc = extract_mfcc(path)
-                text = transcribe(path)
+                text, ipa_full = transcribe_and_get_ipa_api(path, target_word_lower)
 
-                target_word_lower = target_word.lower()
+                print(text, ipa_full)
                 if target_word_lower not in text.lower():
                     continue  # skip if word not found
 
-                # Extract IPA of the actual spoken word from transcription
+                # Find matching IPA for the target word
                 ipa_variants = []
-                for word in text.lower().split():
-                    if target_word_lower in word:
-                        ipa_variants.append(get_ipa(word))
-                ipa = ipa_variants[0] if ipa_variants else get_ipa(target_word_lower)
+                text_words = text.lower().split()
+                ipa_words = ipa_full.split()
+
+                for i, word in enumerate(text_words):
+                    if target_word_lower in word and i < len(ipa_words):
+                        ipa_variants.append(ipa_words[i])
+
+                ipa = ipa_variants[0] if ipa_variants else ""
+
 
                 data.append({
                     "filename": fname,
