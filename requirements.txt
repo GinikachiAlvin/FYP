@@ -7,3 +7,4 @@ fpdf
 scikit-learn
 torch
 transformers
+gunicorn
