@@ -1,0 +1,9 @@
+numpy
+pandas
+librosa
+soundfile
+requests
+fpdf
+scikit-learn
+torch
+transformers
