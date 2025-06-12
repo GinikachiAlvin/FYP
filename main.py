@@ -1,24 +1,35 @@
-# main.py
-from flask import Flask, request, jsonify
-from analyse import analyze_dataset
-import os
+import gradio as gr
 import tempfile
+import os
+from analyse import analyze_dataset
 
-app = Flask(__name__)
+def run_analysis(audio_files, target_word):
+    if not audio_files or not target_word:
+        return "Please upload audio files and enter a target word."
 
-@app.route("/analyze", methods=["POST"])
-def analyze():
-    target_word = request.form.get("target_word")
-    if not target_word or 'audio_files' not in request.files:
-        return jsonify({"error": "Missing target_word or audio_files"}), 400
-
-    # Save uploaded files
     with tempfile.TemporaryDirectory() as temp_dir:
-        for audio in request.files.getlist("audio_files"):
-            audio.save(os.path.join(temp_dir, audio.filename))
+        for audio in audio_files:
+            filepath = os.path.join(temp_dir, audio.name)
+            with open(filepath, "wb") as f:
+                f.write(audio.read())
 
         result = analyze_dataset(target_word, temp_dir)
-        return jsonify(result)
+        if "error" in result:
+            return result["error"]
+        
+        return f"✅ Analyzed '{target_word}'\n\nIPA Variants:\n" + \
+               "\n".join([rec['ipa'] for rec in result['records']])
+
+iface = gr.Interface(
+    fn=run_analysis,
+    inputs=[
+        gr.File(file_types=[".wav"], label="Upload WAV files", multiple=True),
+        gr.Textbox(label="Target Word")
+    ],
+    outputs="text",
+    title="Pronunciation Variant Analyzer",
+    description="Upload .wav files and enter a target word to analyze IPA variants and cluster pronunciations.",
+)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    iface.launch()
